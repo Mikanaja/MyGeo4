@@ -6,6 +6,7 @@ import time
 import hashlib
 import random
 import concurrent.futures
+from tabulate import tabulate
 
 class ClientInterface:
     def __init__(self, coordinator_address, coordinator_port):
@@ -184,16 +185,13 @@ class ClientInterface:
         """
         print(f"Iniciando teste de escala: {num_images} imagens, {images_per_second} img/s, {num_datanodes} datanodes")
         
-        # Simula a configuração de datanodes (na prática, isso seria feito no coordenador)
         self.simulate_datanode_config(num_datanodes)
 
-        # Lista todas as imagens disponíveis
         available_images = self.list_images()
         if not available_images:
             print("Erro: Não há imagens disponíveis para o teste.")
             return 0
 
-        # Seleciona imagens aleatórias para o teste
         test_images = random.choices(available_images, k=num_images)
 
         start_time = time.time()
@@ -205,7 +203,6 @@ class ClientInterface:
                     time.sleep(1)  # Pausa para simular a taxa de download por segundo
                 futures.append(executor.submit(self.download_image, image, f"test_download_{i}.jpg"))
 
-            # Espera todas as downloads terminarem
             concurrent.futures.wait(futures)
 
         end_time = time.time()
@@ -221,7 +218,6 @@ class ClientInterface:
         """
         print(f"Simulando configuração com {num_datanodes} datanodes")
         # Aqui você poderia adicionar lógica para configurar os datanodes no coordenador
-        # Por exemplo, enviando uma mensagem ao coordenador para ajustar a configuração
 
     def run_scale_tests(self):
         """
@@ -234,17 +230,95 @@ class ClientInterface:
 
         results = []
         for images_per_second, num_datanodes in test_configs:
-            # Executa cada teste por 60 segundos
             num_images = images_per_second * 60
             time_taken = self.perform_scale_test(num_images, images_per_second, num_datanodes)
             results.append((images_per_second, num_datanodes, time_taken))
 
-        # Exibe os resultados
         print("\nResultados dos Testes de Escala:")
         print("Imagens/s | Datanodes | Tempo Total (s)")
         print("-" * 40)
         for ips, dn, time in results:
             print(f"{ips:^10} | {dn:^9} | {time:^14.2f}")
+
+    def perform_benchmark(self, operation, num_images, num_datanodes):
+        """
+        Realiza um benchmark de inserção ou recuperação de imagens.
+
+        Args:
+            operation (str): 'insert' ou 'retrieve'
+            num_images (int): Número de imagens para o benchmark
+            num_datanodes (int): Número de datanodes para o teste
+
+        Returns:
+            float: Tempo total de execução em segundos
+        """
+        self.simulate_datanode_config(num_datanodes)
+        
+        if operation == 'insert':
+            start_time = time.time()
+            for i in range(num_images):
+                self.upload_image(f"benchmark_image_{i}.jpg")
+            end_time = time.time()
+        elif operation == 'retrieve':
+            available_images = self.list_images()
+            if len(available_images) < num_images:
+                print(f"Erro: Não há imagens suficientes. Disponíveis: {len(available_images)}")
+                return 0
+            
+            test_images = random.sample(available_images, num_images)
+            start_time = time.time()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(self.download_image, image, f"benchmark_download_{i}.jpg") 
+                           for i, image in enumerate(test_images)]
+                concurrent.futures.wait(futures)
+            end_time = time.time()
+        else:
+            print("Operação inválida")
+            return 0
+
+        total_time = end_time - start_time
+        print(f"Benchmark concluído: {operation} de {num_images} imagens em {total_time:.2f} segundos")
+        return total_time
+
+    def run_benchmarks(self):
+        """
+        Executa uma série de benchmarks com diferentes configurações.
+        """
+        benchmark_configs = [
+            ('insert', 10, 3), ('insert', 50, 3), ('insert', 200, 3),
+            ('retrieve', 10, 3), ('retrieve', 50, 3), ('retrieve', 200, 3),
+            ('insert', 10, 6), ('insert', 50, 6), ('insert', 200, 6),
+            ('retrieve', 10, 6), ('retrieve', 50, 6), ('retrieve', 200, 6)
+        ]
+
+        results = []
+        for operation, num_images, num_datanodes in benchmark_configs:
+            time_taken = self.perform_benchmark(operation, num_images, num_datanodes)
+            results.append((operation, num_images, num_datanodes, time_taken))
+
+        self.display_benchmark_results(results)
+
+    def display_benchmark_results(self, results):
+        """
+        Exibe os resultados do benchmarking em formato de tabela.
+
+        Args:
+            results (list): Lista de tuplas (operação, num_imagens, num_datanodes, tempo)
+        """
+        print("\nResultados do Benchmarking:")
+        
+        results_3_nodes = [r for r in results if r[2] == 3]
+        results_6_nodes = [r for r in results if r[2] == 6]
+
+        headers = ["Operação", "Num. Imagens", "Tempo (s)"]
+
+        print("\nConfiguração com 3 Datanodes:")
+        table_3 = [[r[0], r[1], f"{r[3]:.2f}"] for r in results_3_nodes]
+        print(tabulate(table_3, headers=headers, tablefmt="grid"))
+
+        print("\nConfiguração com 6 Datanodes:")
+        table_6 = [[r[0], r[1], f"{r[3]:.2f}"] for r in results_6_nodes]
+        print(tabulate(table_6, headers=headers, tablefmt="grid"))
 
 def main():
     coordinator_address = 'localhost'  # Altere para o endereço real do coordenador
@@ -260,7 +334,8 @@ def main():
         print("4. Listar Imagens")
         print("5. Status do Sistema")
         print("6. Executar Testes de Escala")
-        print("7. Sair")
+        print("7. Executar Benchmarking")
+        print("8. Sair")
 
         choice = input("Escolha uma opção: ")
 
@@ -281,6 +356,8 @@ def main():
         elif choice == '6':
             client.run_scale_tests()
         elif choice == '7':
+            client.run_benchmarks()
+        elif choice == '8':
             print("Encerrando o cliente...")
             break
         else:
