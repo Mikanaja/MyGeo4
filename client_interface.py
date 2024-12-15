@@ -4,6 +4,8 @@ import rpyc
 import os
 import time
 import hashlib
+import random
+import concurrent.futures
 
 class ClientInterface:
     def __init__(self, coordinator_address, coordinator_port):
@@ -168,6 +170,82 @@ class ClientInterface:
         print(f"Total de imagens: {status['total_images']}")
         return status
 
+    def perform_scale_test(self, num_images, images_per_second, num_datanodes):
+        """
+        Realiza um teste de escala para download de imagens.
+
+        Args:
+            num_images (int): Número de imagens para download
+            images_per_second (int): Taxa de download (imagens por segundo)
+            num_datanodes (int): Número de datanodes para o teste
+
+        Returns:
+            float: Tempo total de execução em segundos
+        """
+        print(f"Iniciando teste de escala: {num_images} imagens, {images_per_second} img/s, {num_datanodes} datanodes")
+        
+        # Simula a configuração de datanodes (na prática, isso seria feito no coordenador)
+        self.simulate_datanode_config(num_datanodes)
+
+        # Lista todas as imagens disponíveis
+        available_images = self.list_images()
+        if not available_images:
+            print("Erro: Não há imagens disponíveis para o teste.")
+            return 0
+
+        # Seleciona imagens aleatórias para o teste
+        test_images = random.choices(available_images, k=num_images)
+
+        start_time = time.time()
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=images_per_second) as executor:
+            futures = []
+            for i, image in enumerate(test_images):
+                if i > 0 and i % images_per_second == 0:
+                    time.sleep(1)  # Pausa para simular a taxa de download por segundo
+                futures.append(executor.submit(self.download_image, image, f"test_download_{i}.jpg"))
+
+            # Espera todas as downloads terminarem
+            concurrent.futures.wait(futures)
+
+        end_time = time.time()
+        total_time = end_time - start_time
+
+        print(f"Teste concluído em {total_time:.2f} segundos")
+        return total_time
+
+    def simulate_datanode_config(self, num_datanodes):
+        """
+        Simula a configuração de um número específico de datanodes.
+        Na prática, isso seria feito no coordenador.
+        """
+        print(f"Simulando configuração com {num_datanodes} datanodes")
+        # Aqui você poderia adicionar lógica para configurar os datanodes no coordenador
+        # Por exemplo, enviando uma mensagem ao coordenador para ajustar a configuração
+
+    def run_scale_tests(self):
+        """
+        Executa uma série de testes de escala com diferentes configurações.
+        """
+        test_configs = [
+            (1, 3), (5, 3), (10, 3),  # Testes com 3 datanodes
+            (1, 6), (5, 6), (10, 6)   # Testes com 6 datanodes
+        ]
+
+        results = []
+        for images_per_second, num_datanodes in test_configs:
+            # Executa cada teste por 60 segundos
+            num_images = images_per_second * 60
+            time_taken = self.perform_scale_test(num_images, images_per_second, num_datanodes)
+            results.append((images_per_second, num_datanodes, time_taken))
+
+        # Exibe os resultados
+        print("\nResultados dos Testes de Escala:")
+        print("Imagens/s | Datanodes | Tempo Total (s)")
+        print("-" * 40)
+        for ips, dn, time in results:
+            print(f"{ips:^10} | {dn:^9} | {time:^14.2f}")
+
 def main():
     coordinator_address = 'localhost'  # Altere para o endereço real do coordenador
     coordinator_port = 8000  # Altere para a porta real do coordenador
@@ -181,7 +259,8 @@ def main():
         print("3. Deletar Imagem")
         print("4. Listar Imagens")
         print("5. Status do Sistema")
-        print("6. Sair")
+        print("6. Executar Testes de Escala")
+        print("7. Sair")
 
         choice = input("Escolha uma opção: ")
 
@@ -200,6 +279,8 @@ def main():
         elif choice == '5':
             client.get_system_status()
         elif choice == '6':
+            client.run_scale_tests()
+        elif choice == '7':
             print("Encerrando o cliente...")
             break
         else:
